@@ -10,6 +10,31 @@ local pairs = pairs
 local ipairs = ipairs
 local tostring = tostring
 
+-- 兼容未来的统一菜单输入
+
+local MenuKeyIsDown = MenuKeyIsDown
+local MenuKeyIsPressed = MenuKeyIsPressed
+if not MenuKeyIsDown then
+    function MenuKeyIsDown(name)
+        local code = setting.keysys[name] or setting.keys[name]
+        if code then
+            return lstg.GetKeyState(code)
+        else
+            return false
+        end
+    end
+end
+if not MenuKeyIsPressed then
+    function MenuKeyIsPressed(name)
+        local code = setting.keysys[name] or setting.keys[name]
+        if code then
+            return lstg.GetLastKey() == code
+        else
+            return false
+        end
+    end
+end
+
 ---获取当前代码层级结构
 ---@return string
 local function GetTraceBack()
@@ -401,22 +426,19 @@ function menu:CalcAllCardCount()
     self.allCardCount.spell = b
 end
 function menu:UpdateInput()
-    local lastKey = GetLastKey()
     local flag1, flag2 = false, false
-    if lastKey == setting.keys.left then
+    if MenuKeyIsPressed("left") then
         self.index1 = self.index1 - 1
         flag1 = true
-    end
-    if lastKey == setting.keys.right then
+    elseif MenuKeyIsPressed("right") then
         self.index1 = self.index1 + 1
         flag1 = true
     end
     self.index1 = (self.index1 - 1) % #self.authors + 1
-    if lastKey == setting.keys.up then
+    if MenuKeyIsPressed("up") then
         self.index2 = self.index2 - 1
         flag2 = true
-    end
-    if lastKey == setting.keys.down then
+    elseif MenuKeyIsPressed("down") then
         self.index2 = self.index2 + 1
         flag2 = true
     end
@@ -429,7 +451,7 @@ function menu:UpdateInput()
         end
         menu.UpdateDraws(self)
     end
-    if KeyIsPressed "shoot" then
+    if MenuKeyIsPressed "shoot" then
         local data = self.cards[self.index2]
         if data then
             PlaySound("ok00", 0.3)
@@ -441,7 +463,7 @@ function menu:UpdateInput()
         else
             PlaySound("invalid", 0.5)
         end
-    elseif KeyIsPressed "spell" then
+    elseif MenuKeyIsPressed "spell" then
         PlaySound("cancel00", 0.3)
         menu.SetCardData(self, nil)
         if self.exit_func then
