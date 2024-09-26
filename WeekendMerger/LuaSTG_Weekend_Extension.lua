@@ -10,6 +10,31 @@ local pairs = pairs
 local ipairs = ipairs
 local tostring = tostring
 
+-- 兼容未来的统一菜单输入
+
+local MenuKeyIsDown = MenuKeyIsDown
+local MenuKeyIsPressed = MenuKeyIsPressed
+if not MenuKeyIsDown then
+    function MenuKeyIsDown(name)
+        local code = setting.keysys[name] or setting.keys[name]
+        if code then
+            return lstg.GetKeyState(code)
+        else
+            return false
+        end
+    end
+end
+if not MenuKeyIsPressed then
+    function MenuKeyIsPressed(name)
+        local code = setting.keysys[name] or setting.keys[name]
+        if code then
+            return lstg.GetLastKey() == code
+        else
+            return false
+        end
+    end
+end
+
 ---获取当前代码层级结构
 ---@return string
 local function GetTraceBack()
@@ -133,7 +158,7 @@ local function EditorClassRecordFinish(name)
                         scp = {
                             boss._class_name,
                             boss.name,
-                            card.name,
+                            base_sc_list_sorted[boss][found_index][2],
                             card,
                             i,
                             card.perform or base_sc_list_sorted[boss][found_index][5]
@@ -213,6 +238,56 @@ end
 local renderTTFR = function(text, x, y, a, r, g, b)
     RenderTTF("sc_pr", text, x, x, y, y, Color(a, r, g, b), "vcenter", "right")
 end
+---绘制一个矩形
+---@param left number @矩形左边
+---@param right number @矩形右边
+---@param bottom number @矩形底边
+---@param top number @矩形顶边
+---@param color Color|table @矩形颜色，单Color指定为单色，table则指定为四个顶点各自的颜色
+local renderRect = function(left, right, bottom, top, color)
+    if type(color) == 'table' then
+        SetImageState("white", '', color[1], color[2], color[3], color[4])
+    else
+        SetImageState("white", '', color)
+    end
+    RenderRect("white", left, right, bottom, top)
+end
+---打印表
+--[[
+function table.print ( t )  
+    local print_r_cache={}
+    local function sub_print_r(t,indent)
+        if (print_r_cache[tostring(t)]) then
+            Print(indent.."*"..tostring(t))
+        else
+            print_r_cache[tostring(t)]=true
+            if (type(t)=="table") then
+                for pos,val in pairs(t) do
+                    if (type(val)=="table") then
+                        Print(indent.."["..pos.."] => "..tostring(t).." {")
+                        sub_print_r(val,indent..string.rep(" ",string.len(pos)+8))
+                        Print(indent..string.rep(" ",string.len(pos)+6).."}")
+                    elseif (type(val)=="string") then
+                        Print(indent.."["..pos..'] => "'..val..'"')
+                    else
+                        Print(indent.."["..pos.."] => "..tostring(val))
+                    end
+                end
+            else
+                Print(indent..tostring(t))
+            end
+        end
+    end
+    if (type(t)=="table") then
+        Print(tostring(t).." {")
+        sub_print_r(t,"  ")
+        Print("}")
+    else
+        sub_print_r(t,"  ")
+    end
+    Print()
+end
+]]
 
 local last_index1, last_index2
 local menu = Class(object)
@@ -230,11 +305,13 @@ function menu:init(exit_func)
     self.cards = {}
     self.texts = {}
     self.draws = {}
+    self.allCardCount = { nonspell = 0, spell = 0 }
     if lstg.var.sc_pr and last_index1 and last_index2 then
         self.index1, self.index2 = last_index1, last_index2
         last_index1, last_index2 = nil, nil
         lstg.var.sc_pr = nil
     end
+    menu.CalcAllCardCount(self)
     menu.UpdateList(self)
     menu.UpdateDraws(self)
 end
@@ -247,56 +324,121 @@ function menu:frame()
 end
 function menu:render()
     SetViewMode("ui")
-    SetImageState("white", "", Color(0xC0000000))
     do
-        RenderRect("white", self.x - 200, self.x + 200, self.y + 150, self.y + 200)
-        for i = -2, 2 do
-            local r = sin(i / 2) * 90
-            local ar = abs(r)
+        SetImageState("white", "", Color(0xC0000000))
+        RenderRect("white", self.x - 270, self.x - 150, self.y + 190, self.y - 190) --name bg
+        for i = -7, 7 do
             local name = self.authors[(self.index1 + i - 1) % #self.authors + 1]
-            local alpha = 255 - 192 * ar
-            local x = self.x + 90 * r
-            local y = self.y + 165 + 15 * ar
-            renderTTF(name, x, y, alpha, 255, 255, 255)
+            local posdelta = i
+            local alpha = 255 - (255-55) * abs(posdelta) / 7
+            local x = self.x - 210
+            local y = self.y + 25 * - posdelta
+            if i==0 then
+                renderRect(self.x - 270 - 15, self.x - 270,
+                            y - 10, y + 10, Color(255, 242, 136, 71))
+                renderTTF("<", self.x - 270 - 7, y, 255, 153, 43, 2)
+                renderRect(self.x - 270, self.x - 270 + 60,
+                            y - 10, y + 10,
+                            {Color(90, 242, 136, 71), Color(0, 242, 136, 71), Color(0, 242, 136, 71), Color(90, 242, 136, 71)})
+                renderRect(self.x - 270 + 60, self.x - 150,
+                            y - 10, y + 10,
+                            {Color(0, 242, 136, 71), Color(90, 242, 136, 71), Color(90, 242, 136, 71), Color(0, 242, 136, 71)})
+                renderRect(self.x - 150, self.x - 150 + 15,
+                            y - 10, y + 10, Color(255, 242, 136, 71))
+                renderTTF(">", self.x - 150 + 7, y, 255, 153, 43, 2)
+                renderTTF(name, x, y, alpha, 242, 136, 71)
+            else
+                renderTTF(name, x, y, alpha, 255, 255, 255)
+            end
         end
+        
+        SetImageState("white", "", Color(0xC0000000))
+        RenderRect("white", self.x - 270, self.x - 150, self.y + 215, self.y + 195) --nameCount bg
+        renderTTF(string.format("%d / %d", self.index1, #self.authors), self.x - 210, self.y + 205, 255, 255, 255, 255)
     end
     do
-        RenderRect("white", self.x - 200, self.x + 200, self.y - 200, self.y + 100)
+        SetImageState("white", "", Color(0xC0000000))
+        RenderRect("white", self.x - 125, self.x + 270, self.y + 190, self.y - 190) --spelllist bg
         menu.RenderSpellcardList(self, self.draws)
     end
 end
 function menu:RenderSpellcardList(texts)
-    for i = 1, 7 do
+    --实时计算结果
+    local authorFullText = self.texts
+    local counter = {totalscCount = 0, bossCardCount = {}}
+    local bossIndex = 0
+    for i=1,#authorFullText do
+        local data = authorFullText[i]
+        if data[2] then
+            counter.totalscCount = counter.totalscCount + 1
+            counter.bossCardCount[bossIndex] = counter.bossCardCount[bossIndex] + 1
+        else
+            bossIndex = bossIndex + 1
+            counter.bossCardCount[bossIndex] = 0
+        end
+    end
+    
+    local baseY = self.y + 25 * 7
+    local bossIndex = 0
+    for i = 1, 15 do
         local data = texts[i]
         if data then
             if data[2] then
-                local gb = data[4] == self.index2 and 0 or 255, 255
-                renderTTFR(data[5], self.x + 180, self.y + 85 - 45 * (i - 1), 255, 255, gb, gb)
+                local r, g, b = 255,255,255
+                if data[4] == self.index2 then
+                    r, g, b = 242, 136, 71
+                    renderRect(self.x - 125, self.x + 270,
+                            baseY - 25 * (i - 1) - 10, baseY - 25 * (i - 1) + 10,
+                            {Color(0, 242, 136, 71), Color(90, 242, 136, 71), Color(90, 242, 136, 71), Color(0, 242, 136, 71)})
+                end
+                renderTTFR(data[5], self.x + 270 - 15, baseY - 25 * (i - 1), 255, r, g, b)
             else
-                renderTTFL(data[3], self.x - 180, self.y + 85 - 45 * (i - 1), 255, 255, 255, 255)
+                bossIndex = bossIndex + 1
+                renderTTFL(data[3], self.x - 125 + 15, baseY - 25 * (i - 1), 255, 255, 255, 255)
+                renderTTFR(string.format('(%d)', counter.bossCardCount[data[4]] or -1), self.x + 270 - 15, baseY - 25 * (i - 1), 255, 255, 255, 255)
             end
         else
-            renderTTF(NonString, self.x, self.y + 85 - 45 * (i - 1), 255, 255, 255, 255)
+            renderTTF("", self.x + 270 - 395/2, self.y - 25 * (i - 1), 255, 255, 255, 255)
         end
     end
+    
+    SetImageState("white", "", Color(0xC0000000))
+    RenderRect("white", self.x - 125, self.x + 270, self.y + 215, self.y + 195) --spellCount bg
+    renderTTFL(string.format("%d / %d", self.index2, counter.totalscCount), self.x - 125 + 15, self.y + 205, 255, 255, 255, 255)
+    renderTTFR(string.format('ALL: %d (%d SC + %d NSC)', self.allCardCount.nonspell + self.allCardCount.spell, self.allCardCount.spell, self.allCardCount.nonspell), self.x + 270 - 15, self.y + 205, 255, 255, 255, 255)
+    --renderTTFR('ALL: ???', self.x + 270 - 15, self.y + 205, 255, 255, 255, 255)
+end
+function menu:CalcAllCardCount()
+    local a, b = 0, 0
+    for _, author in ipairs(self.authors) do
+        local _sorted_sc_table = RecordEditorDefinedClass[author]._sorted_sc_table
+        for _, data in ipairs(_sorted_sc_table or {}) do
+            for _, card in ipairs(data.card) do
+                if card[4].is_sc then
+                    b = b + 1
+                else
+                    a = a + 1
+                end
+            end
+        end
+    end
+    self.allCardCount.nonspell = a
+    self.allCardCount.spell = b
 end
 function menu:UpdateInput()
-    local lastKey = GetLastKey()
     local flag1, flag2 = false, false
-    if lastKey == setting.keys.left then
+    if MenuKeyIsPressed("left") then
         self.index1 = self.index1 - 1
         flag1 = true
-    end
-    if lastKey == setting.keys.right then
+    elseif MenuKeyIsPressed("right") then
         self.index1 = self.index1 + 1
         flag1 = true
     end
     self.index1 = (self.index1 - 1) % #self.authors + 1
-    if lastKey == setting.keys.up then
+    if MenuKeyIsPressed("up") then
         self.index2 = self.index2 - 1
         flag2 = true
-    end
-    if lastKey == setting.keys.down then
+    elseif MenuKeyIsPressed("down") then
         self.index2 = self.index2 + 1
         flag2 = true
     end
@@ -309,7 +451,7 @@ function menu:UpdateInput()
         end
         menu.UpdateDraws(self)
     end
-    if KeyIsPressed "shoot" then
+    if MenuKeyIsPressed "shoot" then
         local data = self.cards[self.index2]
         if data then
             PlaySound("ok00", 0.3)
@@ -321,7 +463,7 @@ function menu:UpdateInput()
         else
             PlaySound("invalid", 0.5)
         end
-    elseif KeyIsPressed "spell" then
+    elseif MenuKeyIsPressed "spell" then
         PlaySound("cancel00", 0.3)
         menu.SetCardData(self, nil)
         if self.exit_func then
@@ -344,55 +486,73 @@ function menu:UpdateList()
     do
         local boss_name
         local index = 0
+        local bossIndex = 0
+        texts.cardscount = {}
         for _, card in ipairs(self.cards) do
             n = n + 1
             if boss_name ~= card[2] then
+                bossIndex = bossIndex + 1
                 boss_name = card[2]
-                insert(texts, { n, false, boss_name })
+                insert(texts, { n, false, boss_name, bossIndex})
                 n = n + 1
             end
             index = index + 1
             insert(texts, { n, true, boss_name, index, card[3] })
         end
     end
+    --table.print(self.texts)
 end
 function menu:UpdateDraws()
     local draws = {}
     self.draws = draws
     local texts = self.texts
     local n = #texts
-    if n <= 7 then
+    if n <= 15 then
         for i = 1, n do
             insert(draws, texts[i])
         end
     else
-        local lineIndex
+        local lineIndexBossIndex = 0 --当前lineIndex对应的bossIndex
+        local bossIndexDelta = 0 --需要倒推的index差数
+        local lineIndex = nil
         for i = 1, n do
+            if not texts[i][2] and not lineIndex then
+                lineIndexBossIndex = lineIndexBossIndex + 1
+            end
             if texts[i][2] and texts[i][4] == self.index2 then
                 lineIndex = i
             end
         end
-        if lineIndex <= 4 then
-            for i = 1, 7 do
+        if lineIndex <= 8 then
+            for i = 1, 15 do
                 insert(draws, texts[i])
             end
         else
             local remain = #texts - lineIndex
-            if remain > 3 then
-                for i = -3, 3 do
+            if remain > 7 then
+                for i = -7, 7 do
                     insert(draws, texts[lineIndex + i])
                 end
+                for i = lineIndex, max(1, lineIndex-7), -1 do
+                    if not texts[i][2] then bossIndexDelta = bossIndexDelta + 1 end
+                end
             else
-                for i = -6, 0 do
+                for i = -14, 0 do
                     insert(draws, texts[#texts + i])
+                end
+                for i = lineIndex, #texts - 14, -1 do
+                    if not texts[i][2] then bossIndexDelta = bossIndexDelta + 1 end
                 end
             end
             if draws[1][2] and not (draws[2][2]) then
-                draws[1] = { draws[1][1], false, draws[1][3] }
+                draws[1] = { draws[1][1], false, draws[1][3], lineIndexBossIndex-bossIndexDelta}
             elseif draws[1][2] and draws[2][2] then
-                draws[1] = { draws[1][1], false, draws[2][3] }
+                draws[1] = { draws[1][1], false, draws[2][3], lineIndexBossIndex-bossIndexDelta}
             end
         end
+        --Print('lineIndexBossIndex', lineIndexBossIndex)
+        --Print('bossIndexDelta', bossIndexDelta)
+        --table.print(draws)
     end
 end
 function menu:SetCardData(data)
